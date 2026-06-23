@@ -1,5 +1,15 @@
 # Hermes Agent - Development Guide
 
+## Git Workflow (Gleidson's Fork)
+
+- **Fork:** https://github.com/GleidsonSilva/hermes-agent
+- **Upstream:** https://github.com/NousResearch/hermes-agent
+- **Default remote:** `origin` (seu fork), NÃO `upstream`
+- **Base branch local:** `gleidson-main` (espelha `upstream/main`)
+- **Ao criar PRs:** sempre contra `origin/gleidson-main` (seu fork), NÃO contra upstream
+- **Ao atualizar:** `git fetch upstream && git checkout gleidson-main && git merge upstream/main`
+- **Nunca faça push direto para `upstream`**
+
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
 **Never give up on the right solution.**

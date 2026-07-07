@@ -44,6 +44,7 @@ Choose highest (least-footprint) rung that solves the problem:
 5. MCP server in catalog
 6. New core tool (last resort — only if fundamental and unreachable via terminal+file)
 
+
 ## Development Environment
 
 ```bash
@@ -148,6 +149,7 @@ Embeds real `hermes --tui` via PTY (xterm.js). **Do not re-implement chat in Rea
 
 Separate Electron + React chat surface. Slash commands curated client-side (`apps/desktop/src/lib/desktop-slash-commands.ts`), dispatched to backend.
 
+
 ## Adding New Tools
 
 Built-in tools require changes in **2 files**: `tools/your_tool.py` (with `registry.register()`) and `toolsets.py` (add to `_HERMES_CORE_TOOLS` or a new toolset).
@@ -176,6 +178,7 @@ Skins are **pure data** — `hermes_cli/skin_engine.py` loads from config or `~/
 ## Plugins
 
 Two surfaces: general plugins (`hermes_cli/plugins.py`) and memory-provider plugins (`plugins/memory/`). Rule: **plugins MUST NOT modify core files.** No new in-tree memory providers (policy, May 2026) — publish as standalone repos.
+
 
 ## Skills
 
@@ -219,3 +222,4 @@ SQLite-backed multi-agent board. CLI via `hermes kanban`, workers use `kanban_*`
 ## Testing
 
 **Always use `scripts/run_tests.sh`** for CI parity. Subprocess-per-test isolation via `tests/_isolate_plugin.py` (spawn context, no fork). Don't write change-detector tests — assert how data relates, not current values.
+

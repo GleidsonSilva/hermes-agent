@@ -1,28 +1,20 @@
 import { type MutableRefObject, useCallback, useEffect, useRef } from 'react'
 
 import { TYPING_IDLE_MS } from '../config/timing.js'
-import { attachedImageNotice } from '../domain/messages.js'
 import { completionToApplyOnSubmit, looksLikeSlashCommand } from '../domain/slash.js'
 import type { GatewayClient } from '../gatewayClient.js'
-import type {
-  InputDetectDropResponse,
-  PromptSubmitResponse,
-  SessionSteerResponse,
-  ShellExecResponse
-} from '../gatewayTypes.js'
+import type { SessionSteerResponse, ShellExecResponse } from '../gatewayTypes.js'
 import { asRpcResult } from '../lib/rpc.js'
 import { hasInterpolation, INTERPOLATION_RE } from '../protocol/interpolation.js'
 import { PASTE_SNIPPET_RE } from '../protocol/paste.js'
 import type { Msg } from '../types.js'
 
 import type { ComposerActions, ComposerRefs, ComposerState, PasteSnippet } from './interfaces.js'
+import { submitPrompt } from './submissionCore.js'
 import { turnController } from './turnController.js'
 import { getUiState, patchUiState } from './uiStore.js'
 
 const DOUBLE_ENTER_MS = 450
-const SESSION_BUSY_RE = /session busy|waiting for model response/i
-
-const isSessionBusyError = (e: unknown) => e instanceof Error && SESSION_BUSY_RE.test(e.message)
 
 const expandSnips = (snips: PasteSnippet[]) => {
   const byLabel = new Map<string, string[]>()
@@ -144,6 +136,7 @@ export function useSubmission(opts: UseSubmissionOptions) {
           startSubmit(r.text || text, expand(r.text || text), showUserMessage)
         })
         .catch(() => startSubmit(text, expand(text), showUserMessage))
+
     },
     [appendMessage, composerActions, composerState.pasteSnips, gw, maybeGoodVibes, setLastUserMsg, sys]
   )

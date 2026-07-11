@@ -3770,6 +3770,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._stream_started = False  # True once first delta arrives
         self._stream_box_opened = False  # True once the response box header is printed
         self._reasoning_preview_buf = ""  # Coalesce tiny reasoning chunks for [thinking] output
+        self._pending_reasoning_summary = ""  # Latest reasoning, shown inline with the next tool call
         # Table-row buffer.  When a streamed line looks like it could be
         # part of a markdown table, hold it here until the block ends so
         # we can re-pad with wcwidth-aware widths.  Empty by default;
@@ -5570,6 +5571,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             _cprint(f"\n{_DIM}┌─{r_label}{'─' * max(r_fill - 1, 0)}┐{_RST}")
 
         self._reasoning_buf = getattr(self, "_reasoning_buf", "") + text
+        self._pending_reasoning_summary = getattr(self, "_pending_reasoning_summary", "") + text
 
         # Emit complete lines, and force-flush long partial lines so
         # reasoning is visible in real-time even without newlines.
@@ -9350,6 +9352,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not reasoning_text:
             return
         self._reasoning_preview_buf = getattr(self, "_reasoning_preview_buf", "") + reasoning_text
+        self._pending_reasoning_summary = getattr(self, "_pending_reasoning_summary", "") + reasoning_text
         self._flush_reasoning_preview(force=False)
 
     def _manual_compress(self, cmd_original: str = ""):
@@ -10849,6 +10852,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._stream_box_opened = False
         self._close_reasoning_box()
 
+        summary = getattr(self, "_pending_reasoning_summary", "").strip()
+        if summary:
+            short = " ".join(summary.split())[:100].rstrip()
+            if short:
+                _cprint(f"  {_DIM}┊ 💭 {short}…{_RST}")
+            self._pending_reasoning_summary = ""
+
         from agent.display import get_tool_emoji
         emoji = get_tool_emoji(tool_name, default="⚡")
         _cprint(f"  ┊ {emoji} preparing {tool_name}…")
@@ -12137,6 +12147,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # across intermediate turn boundaries (tool-calling loops) — only
             # reset at the start of each user turn.
             self._reasoning_shown_this_turn = False
+            self._pending_reasoning_summary = ""
 
             # --- Streaming TTS setup ---
             # When ElevenLabs is the TTS provider and sounddevice is available,

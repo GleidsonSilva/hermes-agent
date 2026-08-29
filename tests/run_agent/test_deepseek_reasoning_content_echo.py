@@ -95,6 +95,14 @@ class TestNeedsDeepSeekToolReasoning:
         agent = _make_agent(provider="DeepSeek", model="")
         assert agent._needs_deepseek_tool_reasoning() is True
 
+    def test_opencode_zen_deepseek_model_substring(self) -> None:
+        agent = _make_agent(
+            provider="opencode-zen",
+            model="deepseek-v4-flash-free",
+            base_url="https://opencode.ai/zen/v1",
+        )
+        assert agent._needs_deepseek_tool_reasoning() is True
+
     def test_non_deepseek_provider(self) -> None:
         agent = _make_agent(
             provider="openrouter",
@@ -240,6 +248,21 @@ class TestCopyReasoningContentForApi:
     def test_kimi_moonshot_base_url(self) -> None:
         agent = _make_agent(
             provider="custom", model="kimi-k2", base_url="https://api.moonshot.ai/v1"
+        )
+        source = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "c1", "function": {"name": "terminal"}}],
+        }
+        api_msg: dict = {}
+        agent._copy_reasoning_content_for_api(source, api_msg)
+        assert api_msg.get("reasoning_content") == " "
+
+    def test_opencode_zen_deepseek_tool_call_gets_padded(self) -> None:
+        agent = _make_agent(
+            provider="opencode-zen",
+            model="deepseek-v4-flash-free",
+            base_url="https://opencode.ai/zen/v1",
         )
         source = {
             "role": "assistant",

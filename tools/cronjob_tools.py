@@ -797,6 +797,22 @@ def cronjob(
         # Resolve to canonical ID (supports name-based lookup)
         job_id = job["id"]
 
+        # ── Proteção: não permitir modificar jobs protegidos ─────
+        from hermes_cli.config import load_config
+        _protect_cfg = load_config()
+        _protected = (
+            _protect_cfg.get("cron", {}).get("protected_job_ids") or []
+            if isinstance(_protect_cfg, dict) else []
+        )
+        if isinstance(_protected, list) and job_id in _protected:
+            if normalized in ("remove", "update", "pause", "resume"):
+                return tool_error(
+                    f"Job '{job['name']}' (ID: {job_id}) is protected "
+                    f"and cannot be {normalized}d. Remove it from "
+                    f"cron.protected_job_ids in config.yaml first.",
+                    success=False,
+                )
+
         if normalized == "remove":
             removed = remove_job(job_id)
             if not removed:

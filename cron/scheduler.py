@@ -121,12 +121,21 @@ def _resolve_cron_disabled_toolsets(cfg: dict) -> list[str]:
       - ``messaging`` — interactive, needs a live gateway session
       - ``clarify`` — interactive, blocks waiting for user input
 
-    User-level ``agent.disabled_toolsets`` from config.yaml is layered on top
+    ``cron.allow_toolsets`` in config.yaml can re-enable specific toolsets
+    (e.g. ``cronjob`` for reminder scheduling). User-level
+    ``agent.disabled_toolsets`` from config.yaml is layered on top
     so per-job ``enabled_toolsets`` cannot bypass policy that applies to
     ordinary agent runs (#25752 — LLM-supplied enabled_toolsets was widening
     past config.yaml's denylist).
     """
     disabled = ["cronjob", "messaging", "clarify"]
+    # Allow re-enabling specific protected toolsets via config
+    allow = (cfg or {}).get("cron", {}).get("allow_toolsets") or []
+    if isinstance(allow, list):
+        for name in allow:
+            name = str(name).strip()
+            if name and name in disabled:
+                disabled.remove(name)
     agent_cfg = (cfg or {}).get("agent") or {}
     user_disabled = agent_cfg.get("disabled_toolsets") or []
     for name in user_disabled:
@@ -2972,7 +2981,13 @@ def run_job(
             # Without a workdir, keep cwd context discovery disabled.
             skip_context_files=not bool(_job_workdir),
             load_soul_identity=True,
-            skip_memory=True,  # Cron system prompts would corrupt user representations
+            # Cron memory: if cron.memory is true in config.yaml, the agent
+            # can use the memory() tool and has memories injected into its
+            # system prompt. Default skip_memory=True (each tick stateless)
+            # to avoid polluting user memories with cron operational data.
+            # Enable ONLY on purpose-built cron profiles where the agent
+            # needs persistent context across ticks.
+            skip_memory=not _cfg.get("cron", {}).get("memory", False),
             platform="cron",
             session_id=_cron_session_id,
             session_db=_session_db,

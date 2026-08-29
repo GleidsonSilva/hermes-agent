@@ -2615,6 +2615,22 @@ DEFAULT_CONFIG = {
         # 1 = serial (pre-v0.9 behaviour).
         # Also overridable via HERMES_CRON_MAX_PARALLEL env var.
         "max_parallel_jobs": None,
+        # Enable memory (skip_memory=False) for cron sessions so the agent
+        # can save and recall facts between ticks using the memory() tool.
+        # Default: false — each tick is stateless (current behaviour).
+        # Set to true ONLY on profiles where you want the cron agent to
+        # maintain long-term context across cycles. Memories are shared
+        # with the profile's other Hermes sessions.
+        "memory": False,
+        # Protected toolset names that are re-enabled for cron (by default
+        # cronjob, messaging, and clarify are disabled for cron safety).
+        # Only "cronjob" is practically useful here — lets the agent schedule
+        # new jobs (reminders, recurring tasks). Messaging and clarify don't
+        # work well in cron context.
+        "allow_toolsets": [],
+        # Job IDs that the agent CANNOT modify, remove, pause, or resume.
+        # Protects critical monitoring jobs from accidental agent changes.
+        "protected_job_ids": [],
         # Per-job output-file retention: save_job_output keeps the N most
         # recent .md files and prunes older ones. 0 or negative disables
         # pruning (for operators who manage cleanup externally). Default 50.

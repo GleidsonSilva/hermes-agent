@@ -13,6 +13,7 @@ import atexit
 import concurrent.futures
 import contextvars
 import json
+import errno
 import logging
 import os
 import re
@@ -98,6 +99,19 @@ def _summarize_cron_failure_for_delivery(job: dict, error: str | None) -> str:
     if len(cleaned) > 180:
         cleaned = cleaned[:177].rstrip() + "..."
     return f"⚠️ Cron '{job_name}' failed: {cleaned}"
+
+
+def _is_fd_exhaustion_text(text: str) -> bool:
+    """Text-level half of :func:`_is_fd_exhaustion` (shared with the CLI hint)."""
+    lowered = text.lower()
+    return "too many open files" in lowered or "emfile" in lowered
+
+
+def _is_fd_exhaustion(exc: BaseException) -> bool:
+    """Return True when *exc* indicates file-descriptor exhaustion."""
+    if isinstance(exc, OSError) and exc.errno in (errno.EMFILE, errno.ENFILE):
+        return True
+    return _is_fd_exhaustion_text(str(exc))
 
 
 class CronPromptInjectionBlocked(Exception):
@@ -3410,6 +3424,49 @@ def _notify_provider_jobs_changed() -> None:
         resolve_cron_scheduler().on_jobs_changed()
     except Exception as e:
         logger.debug("on_jobs_changed notify failed: %s", e)
+
+
+class CronSchedulerRegistrationError(RuntimeError):
+    """A job was persisted but its first external trigger was not registered."""
+
+    def __init__(self, job: dict, cause: Exception) -> None:
+        self.job = job
+        self.cause = cause
+        super().__init__(
+            f"Cron job '{job['id']}' was saved, but its first scheduler "
+            f"registration failed. Do not create a duplicate."
+        )
+
+    def to_dict(self) -> dict:
+        """Return the public partial-failure contract without provider details."""
+        return {
+            "error": str(self),
+            "job_id": self.job["id"],
+            "job_saved": True,
+            "scheduler_registered": False,
+            "retry_create": False,
+        }
+
+    def user_message(self) -> str:
+        """Return a user-safe partial-failure message without provider details."""
+        name = self.job.get("name") or self.job["id"]
+        return (
+            f"Cron job '{name}' was saved, but its first scheduler "
+            "registration failed. Do not create a duplicate."
+        )
+
+
+def create_job_with_scheduler_registration(*args, **kwargs) -> dict:
+    """Persist one job and register its first trigger with the active provider."""
+    from cron.jobs import create_job
+    from cron.scheduler_provider import resolve_cron_scheduler
+
+    job = create_job(*args, **kwargs)
+    try:
+        resolve_cron_scheduler().register_job(job)
+    except Exception as exc:
+        raise CronSchedulerRegistrationError(job, exc) from exc
+    return job
 
 
 def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> int:

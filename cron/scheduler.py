@@ -321,6 +321,37 @@ _parallel_pool_max_workers: Optional[int] = None
 _running_job_ids: set = set()
 _running_lock = threading.Lock()
 
+
+def get_running_job_ids() -> frozenset:
+    """Return a thread-safe snapshot of job IDs currently running in this process."""
+    with _running_lock:
+        return frozenset(_running_job_ids)
+
+
+def try_register_running_job(job_id: str) -> bool:
+    """Atomically claim ``job_id`` in the shared in-flight running set.
+
+    Returns True if the claim was taken (job was not already running),
+    False if another thread/ticker already holds it. Used by manual runs
+    (``cronjob run``) to share the same in-flight dedupe as the ticker's
+    submission guard, making them visible to the gateway shutdown drain.
+    """
+    with _running_lock:
+        if job_id in _running_job_ids:
+            return False
+        _running_job_ids.add(job_id)
+        return True
+
+
+def release_running_job(job_id: str) -> None:
+    """Release an in-flight claim taken by ``try_register_running_job``.
+
+    Safe to call multiple times / for unknown ids — discard is a no-op.
+    """
+    with _running_lock:
+        _running_job_ids.discard(job_id)
+
+
 # Sequential (env-mutating) cron jobs — workdir jobs that touch
 # process-global runtime state — must run one at a time, but must NOT block the
 # ticker thread.  A persistent single-thread executor preserves ordering across

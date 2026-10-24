@@ -359,7 +359,6 @@ export interface UiState {
   sections: SectionVisibility
   sessionTitle: string
   showReasoning: boolean
-  showTimestamps: boolean
   indicatorStyle: IndicatorStyle
   sid: null | string
   status: string

@@ -1,0 +1,25 @@
+name: pgvector
+version: "1.0.0"
+description: "PostgreSQL pgvector memory backend for Glena profile (hybrid search, 1024d embeddings, multi-scope)"
+
+kind: model-provider
+api_version: 1
+
+compatibility:
+  # This plugin uses the MemoryProvider ABC contract (v1 implicit contract —
+  # best-effort on_pre_compress with raw message list). It is additive: nothing
+  # is removed or renamed from the core surface. Config surfaces (database_url)
+  # are optional with defaults derived from the profile's memory_config.
+  # No env-keyed behavior gates in core — the plugin is activated only when the
+  # user selects memory.provider = "pgvector" in config.yaml.
+  deprecations: []
+  migration_notes: "No migration needed — new provider; activates via memory.provider config key. Existing pgvector DB (glena_memory_db, port 5433) is reused directly."
+
+author: "Glena (hermes-agent profile)"
+license: MIT
+
+platforms: [linux, macos]
+
+# The plugin reads DATABASE_URL from the profile's memory_config.py module
+# (which loads from .env / environment variables). The user activates it by
+# setting memory.provider = "pgvector" in config.yaml.

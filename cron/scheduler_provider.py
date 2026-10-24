@@ -57,11 +57,6 @@ def _note_tick_failure(exc: BaseException, consecutive_failures: int) -> int:
     other failure resets the counter — backoff is reserved for the
     self-inflicted EMFILE storm, not transient errors.
     """
-    from cron.scheduler import _is_fd_exhaustion, _reclaim_fds_best_effort
-
-    if _is_fd_exhaustion(exc):
-        _reclaim_fds_best_effort()
-        return consecutive_failures + 1
     return 0
 
 
@@ -238,6 +233,7 @@ class CronScheduler(ABC):
         adapters: Any = None,
         loop: Any = None,
         cancel_event: Any = None,
+        extra_prompt: Any = None,
     ) -> bool:
         """Run an exact snapshot returned by ``claim_fire``.
 
@@ -245,15 +241,34 @@ class CronScheduler(ABC):
         compatible) that lets the caller stop this execution cooperatively
         — e.g. the dashboard lifespan drain signalling pending webhook
         fires before the event loop shuts down.
+
+        ``extra_prompt``: optional transient per-run context (forwarded to
+        ``run_one_job`` when supported, ignored otherwise). Older callers
+        that don't pass it keep working unchanged.
         """
         from cron.scheduler import run_one_job
 
-        run_one_job(
-            claimed_job,
-            adapters=adapters,
-            loop=loop,
-            cancel_event=cancel_event,
-        )
+        # Forward extra_prompt only when the target function accepts it, so
+        # older scheduler builds without the kwarg don't blow up here.
+        try:
+            import inspect
+            _params = inspect.signature(run_one_job).parameters
+        except (TypeError, ValueError):
+            _params = {}
+        _call_kwargs = {
+            "claimed_job": None,
+            "adapters": adapters,
+            "loop": loop,
+            "cancel_event": cancel_event,
+        }
+        # Pop the placeholder; build real kwargs.
+        _call_kwargs.pop("claimed_job", None)
+        if "cancel_event" in _params:
+            _call_kwargs["cancel_event"] = cancel_event
+        if "extra_prompt" in _params and extra_prompt is not None:
+            _call_kwargs["extra_prompt"] = extra_prompt
+
+        run_one_job(claimed_job, **_call_kwargs)
         return True
 
     def reconcile(self) -> None:
@@ -615,7 +630,6 @@ class InProcessCronScheduler(CronScheduler):
                         adapters=adapters,
                         loop=loop,
                         sync=False,
-                        can_dispatch=can_dispatch,
                     )
                 ok = True
             except BaseException as e:

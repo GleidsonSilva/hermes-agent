@@ -939,6 +939,25 @@ DEFAULT_CONFIG = {
         # Set a positive value in config.yaml only if you explicitly want a
         # grace window on /restart (and keep it well under TimeoutStopSec).
         "restart_drain_timeout": 0,
+        # Cron-only floor under the stop()/drain wait (seconds). A chat turn
+        # interrupted by a restart is announced to the user and resumed on
+        # their next message; an interrupted cron run is written to jobs.json
+        # as a permanent failure that nobody is waiting on, so it must not
+        # inherit restart_drain_timeout's 0 (#82161). Clamped at runtime to
+        # the shutdown-watchdog leash minus teardown headroom, so raising it
+        # past ~50s has no effect unless TimeoutStopSec is raised too.
+        # 0 = opt out (cron drains on restart_drain_timeout, legacy).
+        "cron_drain_timeout": 30,
+        # In-band restart wait for active turns to finish before stop()
+        # (seconds). /restart and SIGUSR1 refuse new work, then wait up to
+        # this cap for in-flight agents/cron/api runs to complete naturally
+        # so the requesting turn is not amputated by restart_drain_timeout.
+        # 0 = legacy behaviour (enter stop()/drain immediately). Default
+        # 30 min is a safety valve for wedged agents, not a target latency —
+        # an interactive `hermes gateway restart` must never block for hours
+        # on a turn that wedged (#79133). Long unattended turns can raise
+        # this in config.yaml.
+        "restart_after_turn_timeout": 1800,
         # Max app-level retry attempts for API errors (connection drops,
         # provider timeouts, 5xx, etc.) before the agent surfaces the
         # failure.  The OpenAI SDK already does its own low-level retries
@@ -6782,6 +6801,18 @@ def terminal_config_env_var_for_key(key: str) -> Optional[str]:
     return TERMINAL_CONFIG_ENV_MAP.get(key[len(prefix):])
 
 
+def _is_ssh_remote_tilde_cwd(backend: str, cwd: str) -> bool:
+    """Return whether the remote SSH shell must expand *cwd* itself.
+
+    Expanding ``~`` on the Hermes host rewrites it to the host or container
+    home before SSH sees it. Preserve ``~`` and ``~/...`` so they follow the
+    user selected by the SSH connection.
+    """
+    if (backend or "").strip().lower() != "ssh":
+        return False
+    return cwd == "~" or cwd.startswith("~/")
+
+
 def apply_terminal_config_to_env(
     *,
     env: Optional[Dict[str, str]] = None,
@@ -8288,6 +8319,31 @@ _inject_profile_env_vars()
 # An optional ``optional_env`` block surfaces non-required vars the same way
 # (e.g. allowlist, home channel).
 
+def is_provider_enabled(provider_cfg: Optional[Dict[str, Any]]) -> bool:
+    """Return whether a ``providers.<name>`` config block is enabled.
+
+    A provider is enabled by default. Only an explicit ``enabled: false`` in
+    the block hides it from the model picker, ``/models`` listings, the
+    runtime resolver and the doctor / status output.
+
+    Backward-compat: configs without the ``enabled`` key keep working as
+    before — the default is ``True``.
+
+    Pass any non-dict (None, list, string) and you get ``True`` too, so
+    malformed entries don't disappear silently; they'll still be flagged
+    by the existing validation paths.
+    """
+    if not isinstance(provider_cfg, dict):
+        return True
+    flag = provider_cfg.get("enabled", True)
+    if isinstance(flag, bool):
+        return flag
+    # YAML can produce strings for "true"/"false" depending on quoting.
+    if isinstance(flag, str):
+        return flag.strip().lower() not in {"false", "0", "no", "off"}
+    return bool(flag)
+
+
 _platform_plugin_env_vars_injected = False
 
 
@@ -8361,5 +8417,116 @@ def _inject_platform_plugin_env_vars() -> None:
         pass
 
 
+# String spellings that mean "no limit".  Lowercased, whitespace-stripped
+# before comparison so ``"None"``, ``" unlimited "`` etc. all match.
+_UNLIMITED_SPELLINGS = frozenset({
+    "none", "null", "unlimited", "infinite", "infinity", "inf",
+    "∞", "-1", "0",
+})
+
+# Large sentinel representing "no turn limit".  sys.maxsize is used because:
+#   - it is the largest positive int a CPython list index can hold (so a
+#     range(maxsize) loop will never exhaust),
+#   - it is large enough that no real conversation will ever reach it (a turn
+#     takes seconds; 9.2e18 turns would take ~10^11 years).
+TURN_LIMIT_UNLIMITED = sys.maxsize
+
+
+def resolve_turn_limit(raw: Any, default: int = TURN_LIMIT_UNLIMITED) -> int:
+    """Normalize a raw ``agent.max_turns`` value into an int iteration cap.
+
+    Accepts:
+      - ``int`` / ``float`` → ``int(raw)`` (floats truncated; values ≤ 0 mean
+        "no limit" → :data:`TURN_LIMIT_UNLIMITED`).
+      - numeric string (``"120"``) → ``int(raw)``.
+      - ``"none"`` / ``"null"`` / ``"unlimited"`` / ``"infinite"`` /
+        ``"infinity"`` / ``"inf"`` / ``"∞"`` / ``"-1"`` / ``"0"``
+        (case-insensitive, whitespace-tolerant) → :data:`TURN_LIMIT_UNLIMITED`.
+      - YAML ``None`` / ``null`` / absent value → ``default`` (which is itself
+        :data:`TURN_LIMIT_UNLIMITED` — max_turns is unlimited by default).
+      - Anything unparseable → ``default`` (with a debug log).
+
+    The returned int is always ≥ 1, so loop conditions like
+    ``while api_call_count < agent.max_iterations`` behave correctly even when
+    the default (unlimited) path is taken.
+
+    This is the single normalization point for the turn-limit value type.
+    Config-reading sites (cli.py, gateway/run.py, cron/scheduler.py) call this
+    instead of bare ``int(...)``, so ``agent.max_turns: none`` in config.yaml
+    becomes a first-class supported spelling of "unlimited". max_turns is
+    unlimited unless the user sets an explicit positive integer cap.
+    """
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        # bool is a subclass of int; reject it explicitly so True/False don't
+        # silently become 1/0.
+        return default
+    if isinstance(raw, (int, float)):
+        n = int(raw)
+        if n <= 0:
+            return TURN_LIMIT_UNLIMITED
+        return n
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if not s:
+            return default
+        if s in _UNLIMITED_SPELLINGS:
+            return TURN_LIMIT_UNLIMITED
+        try:
+            n = int(s)
+        except ValueError:
+            try:
+                n = int(float(s))
+            except ValueError:
+                logger.debug("resolve_turn_limit: unparseable value %r → default %d", raw, default)
+                return default
+        if n <= 0:
+            return TURN_LIMIT_UNLIMITED
+        return n
+    # Unknown type (list, dict, …) — don't crash the agent over a bad config.
+    logger.debug("resolve_turn_limit: unsupported type %s (%r) → default %d", type(raw).__name__, raw, default)
+    return default
+
+
+def split_model_config_default(raw_default: Any) -> tuple[str, str]:
+    """Canonicalize a config ``model.default``/``model.model`` value.
+
+    A dict-valued default (``model.default: {provider: ..., model: ...}``)
+    pairs the model string with the provider it must be routed through. The
+    dict is flattened here at the shared boundary so both halves stay
+    together through ``HermesCLI`` construction: the model becomes a plain
+    string and the provider is returned explicitly instead of being lost to
+    the outer merged ``model.provider`` default (often ``"auto"``, which
+    runtime resolution treats as authoritative and would otherwise route the
+    model through the wrong active provider).
+
+    Returns ``(model, provider)``; both are ``""`` when nothing is usable.
+    """
+    if isinstance(raw_default, dict):
+        provider = str(raw_default.get("provider") or "").strip()
+        model = raw_default.get("model") or raw_default.get("default")
+        return (str(model or "").strip(), provider)
+    return (str(raw_default or "").strip(), "")
+
+
 # Eagerly inject so that platform plugin env vars show up in the setup wizard.
 _inject_platform_plugin_env_vars()
+def resolve_ephemeral_system_prompt_from_config(cfg=None):
+    """Wrapper for resolve_ephemeral_system_prompt from personality.py."""
+    from hermes_cli.personality import resolve_ephemeral_system_prompt
+    return resolve_ephemeral_system_prompt(cfg)
+
+
+# Alias for backwards compatibility (read_user_config_raw was renamed to read_raw_config)
+def read_user_config_raw(config_path=None):
+    """Deprecated alias for read_raw_config."""
+    if config_path is None:
+        return read_raw_config()
+    # When a path is provided, read that specific file
+    import yaml
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}

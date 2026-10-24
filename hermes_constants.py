@@ -10,11 +10,12 @@ import stat
 import sys
 from contextvars import ContextVar, Token
 from pathlib import Path
+from typing import Union
 
 
 _profile_fallback_warned: bool = False
 _UNSET = object()
-_HERMES_HOME_OVERRIDE: ContextVar[str | object] = ContextVar(
+_HERMES_HOME_OVERRIDE: ContextVar[Union[str, object]] = ContextVar(
     "_HERMES_HOME_OVERRIDE", default=_UNSET
 )
 
@@ -27,13 +28,13 @@ INDICATOR_STYLES: tuple[str, ...] = ("ascii", "emoji", "kaomoji", "unicode")
 DEFAULT_INDICATOR_STYLE: str = "kaomoji"
 
 
-def set_hermes_home_override(path: str | Path | None) -> Token:
+def set_hermes_home_override(path: Union[str, Path, None]) -> Token:
     """Set a context-local Hermes home override and return its reset token.
 
     This is for in-process, per-task scoping.  It deliberately does not mutate
     ``os.environ`` because that is shared by every thread in the process.
     """
-    value: str | object = _UNSET if path is None else str(path)
+    value: Union[str, object] = _UNSET if path is None else str(path)
     return _HERMES_HOME_OVERRIDE.set(value)
 
 
@@ -42,7 +43,7 @@ def reset_hermes_home_override(token: Token) -> None:
     _HERMES_HOME_OVERRIDE.reset(token)
 
 
-def get_hermes_home_override() -> str | None:
+def get_hermes_home_override() -> Union[str, None]:
     """Return the active context-local Hermes home override, if any."""
     override = _HERMES_HOME_OVERRIDE.get()
     if override is _UNSET or not override:
@@ -139,7 +140,7 @@ def get_hermes_home() -> Path:
     return _hermes_home_from_env()
 
 
-def hermes_home_key(path: str | Path | None = None) -> str:
+def hermes_home_key(path: Union[str, Path, None] = None) -> str:
     """Return a stable key for a Hermes home/profile directory.
 
     Runtime registries use this key to isolate plugin-owned entries while
@@ -177,7 +178,7 @@ def get_process_hermes_home() -> Path:
 # Its result depends only on (HERMES_HOME, platform native home), which are
 # compared for free on each call, so the memo is freshness-correct even if a
 # test or plugin mutates HERMES_HOME mid-process.
-_default_hermes_root_memo: "tuple[str, str, Path] | None" = None
+_default_hermes_root_memo: "Union[tuple[str, str, Path], None]" = None
 
 
 def get_default_hermes_root() -> Path:
@@ -267,7 +268,7 @@ def _is_hermes_profiles_root(profiles_dir: Path) -> bool:
         return False
 
 
-def named_profile_home(path: str | Path) -> Path | None:
+def named_profile_home(path: Union[str, Path]) -> Union[Path, None]:
     """Return ``<root>/profiles/<name>`` when *path* is that home or under it.
 
     A named profile home is only ``.../profiles/<id>`` where ``<id>`` does
@@ -298,21 +299,21 @@ def profile_tombstone_path(profile_home: Path) -> Path:
     return profile_home.parent / _DELETED_PROFILES_DIR / profile_home.name
 
 
-def named_profile_is_deleted(profile_home: str | Path) -> bool:
+def named_profile_is_deleted(profile_home: Union[str, Path]) -> bool:
     return profile_tombstone_path(Path(profile_home)).exists()
 
 
-def mark_named_profile_deleted(profile_home: str | Path) -> None:
+def mark_named_profile_deleted(profile_home: Union[str, Path]) -> None:
     marker = profile_tombstone_path(Path(profile_home))
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("deleted\n", encoding="utf-8")
 
 
-def clear_named_profile_deleted(profile_home: str | Path) -> None:
+def clear_named_profile_deleted(profile_home: Union[str, Path]) -> None:
     profile_tombstone_path(Path(profile_home)).unlink(missing_ok=True)
 
 
-def assert_named_profile_home_live(path: str | Path) -> None:
+def assert_named_profile_home_live(path: Union[str, Path]) -> None:
     """Refuse missing or tombstoned named profile homes.
 
     Default ``HERMES_HOME`` (not under ``profiles/``) is unchanged.
@@ -327,7 +328,7 @@ def assert_named_profile_home_live(path: str | Path) -> None:
         )
 
 
-def mkdir_under_hermes_home(path: str | Path) -> Path:
+def mkdir_under_hermes_home(path: Union[str, Path]) -> Path:
     """Create *path*, but never materialize a deleted/missing named profile."""
     target = Path(path)
     assert_named_profile_home_live(target)
@@ -335,7 +336,7 @@ def mkdir_under_hermes_home(path: str | Path) -> Path:
     return target
 
 
-def get_optional_skills_dir(default: Path | None = None) -> Path:
+def get_optional_skills_dir(default: Union[Path, None] = None) -> Path:
     """Return the optional-skills directory, honoring package-manager wrappers.
 
     Packaged installs may ship ``optional-skills`` outside the Python package
@@ -349,7 +350,7 @@ def get_optional_skills_dir(default: Path | None = None) -> Path:
     return get_hermes_home() / "optional-skills"
 
 
-def get_optional_mcps_dir(default: Path | None = None) -> Path:
+def get_optional_mcps_dir(default: Union[Path, None] = None) -> Path:
     """Return the optional-mcps directory, honoring package-manager wrappers.
 
     Mirrors :func:`get_optional_skills_dir` for the MCP catalog (Nous-approved
@@ -365,7 +366,7 @@ def get_optional_mcps_dir(default: Path | None = None) -> Path:
     return get_hermes_home() / "optional-mcps"
 
 
-def get_bundled_skills_dir(default: Path | None = None) -> Path:
+def get_bundled_skills_dir(default: Union[Path, None] = None) -> Path:
     """Return the bundled skills directory for source and packaged installs.
 
     Resolution order:
@@ -385,7 +386,7 @@ def get_hermes_dir(
     new_subpath: str,
     old_name: str,
     *,
-    home: Path | None = None,
+    home: Union[Path, None] = None,
 ) -> Path:
     """Resolve a Hermes subdirectory with backward compatibility.
 
@@ -419,7 +420,7 @@ def get_hermes_dir(
     return home / new_subpath
 
 
-def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
+def iter_hermes_node_dirs(home: Union[Path, None] = None) -> list[Path]:
     """Return Hermes-managed Node.js directories in preferred lookup order.
 
     Windows installs from ``scripts/install.ps1`` unpack portable Node directly
@@ -464,7 +465,7 @@ _NODE_BOOTSTRAP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "lib" / "
 _INSTALL_ROOT = Path(__file__).resolve().parent
 
 
-def node_tool_runnable(path: str | None) -> bool:
+def node_tool_runnable(path: Union[str, None]) -> bool:
     """Return True only when *path* is a Node/npm/npx binary that actually runs.
 
     Hermes-managed Node trees live under ``$HERMES_HOME/node`` (or a profile's
@@ -503,7 +504,7 @@ def node_tool_runnable(path: str | None) -> bool:
     return result.returncode == 0
 
 
-def hermes_managed_node_tree_present(home: Path | None = None) -> bool:
+def hermes_managed_node_tree_present(home: Union[Path, None] = None) -> bool:
     """Return True when any Hermes-managed node/npm/npx shim exists on disk."""
     names = set()
     for command in ("node", "npm", "npx"):
@@ -537,7 +538,7 @@ def _path_under_any(path: str, roots: list[str]) -> bool:
     return False
 
 
-def managed_node_tree_in_use(home: Path | None = None) -> bool:
+def managed_node_tree_in_use(home: Union[Path, None] = None) -> bool:
     """Return True when any running process executes from the managed Node tree.
 
     Windows locks executables and loaded scripts against deletion or
@@ -604,7 +605,7 @@ def _print_managed_node_in_use_notice() -> None:
     )
 
 
-def _heal_managed_node_windows(home: Path | None = None) -> bool | None:
+def _heal_managed_node_windows(home: Union[Path, None] = None) -> Union[bool, None]:
     """Redownload the portable Node zip into ``%HERMES_HOME%\\node`` on Windows.
 
     Returns ``True`` on success, ``False`` on a genuine failure (offline,
@@ -792,7 +793,7 @@ def _bootstrap_managed_node_posix() -> bool:
     return result.returncode == 0
 
 
-def bootstrap_hermes_managed_node() -> str | None:
+def bootstrap_hermes_managed_node() -> Union[str, None]:
     """Install a Hermes-managed Node tree and return its npm path.
 
     Used when the only Node/npm on the machine belongs to the user (system,
@@ -877,7 +878,7 @@ def heal_hermes_managed_node() -> bool:
     return result.returncode == 0
 
 
-def _managed_node_tree_outdated(home: Path | None = None) -> bool:
+def _managed_node_tree_outdated(home: Union[Path, None] = None) -> bool:
     """Return True when the managed tree's node runs but is below the target major.
 
     An outdated managed Node (e.g. a 22 tree from an older install) heals the
@@ -912,7 +913,7 @@ def _managed_node_tree_outdated(home: Path | None = None) -> bool:
     return False
 
 
-def find_hermes_node_executable(command: str) -> str | None:
+def find_hermes_node_executable(command: str) -> Union[str, None]:
     """Return a Hermes-managed Node/npm executable path, healing broken trees.
 
     Outdated trees (node major below ``_HERMES_NODE_TARGET_MAJOR``) heal the
@@ -923,7 +924,7 @@ def find_hermes_node_executable(command: str) -> str | None:
     """
     names = _candidate_node_command_names(command)
 
-    def _first_runnable() -> tuple[str | None, bool]:
+    def _first_runnable() -> tuple[Union[str, None], bool]:
         broken = False
         for directory in iter_hermes_node_dirs():
             for name in names:
@@ -948,7 +949,7 @@ def find_hermes_node_executable(command: str) -> str | None:
     return resolved
 
 
-def find_node_executable_on_path(command: str) -> str | None:
+def find_node_executable_on_path(command: str) -> Union[str, None]:
     """Return a Node/npm executable from PATH with Windows shim ordering.
 
     ``shutil.which("npm")`` can resolve an extensionless npm shim before the
@@ -976,7 +977,7 @@ def find_node_executable_on_path(command: str) -> str | None:
     return None
 
 
-def find_node_executable(command: str) -> str | None:
+def find_node_executable(command: str) -> Union[str, None]:
     """Resolve a Node.js command, preferring healthy Hermes-managed installs.
 
     This is for Hermes-owned subprocesses that should not be broken by a bad,
@@ -992,7 +993,7 @@ def find_node_executable(command: str) -> str | None:
     return find_node_executable_on_path(command)
 
 
-def with_hermes_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
+def with_hermes_node_path(env: Union[dict[str, str], None] = None) -> dict[str, str]:
     """Return *env* with Hermes-managed Node directories prepended to PATH."""
     merged = dict(os.environ if env is None else env)
     existing = merged.get("PATH", "")
@@ -1005,7 +1006,7 @@ def with_hermes_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
     return merged
 
 
-def agent_browser_runnable(path: str | None) -> bool:
+def agent_browser_runnable(path: Union[str, None]) -> bool:
     """Return True only when *path* is an agent-browser CLI that actually runs.
 
     A bare presence check (``shutil.which`` / ``Path.exists``) is not enough:
@@ -1172,7 +1173,7 @@ def secure_parent_dir(path: Path) -> None:
         pass
 
 
-def _norm_home_path(path: str | None) -> str:
+def _norm_home_path(path: Union[str, None]) -> str:
     """Return a comparable absolute path string, or ``""`` for empty input."""
     raw = (path or "").strip()
     if not raw:
@@ -1183,7 +1184,7 @@ def _norm_home_path(path: str | None) -> str:
         return os.path.normcase(raw)
 
 
-def _profile_home_path(env: dict[str, str] | None = None) -> str | None:
+def _profile_home_path(env: Union[dict[str, str], None] = None) -> Union[str, None]:
     """Return ``{HERMES_HOME}/home`` when the profile-home directory exists."""
     hermes_home = get_hermes_home_override() or (env or {}).get("HERMES_HOME") or os.getenv("HERMES_HOME")
     if not hermes_home:
@@ -1194,11 +1195,11 @@ def _profile_home_path(env: dict[str, str] | None = None) -> str | None:
     return None
 
 
-def _is_profile_home(candidate: str | None, profile_home: str | None) -> bool:
+def _is_profile_home(candidate: Union[str, None], profile_home: Union[str, None]) -> bool:
     return bool(candidate and profile_home and _norm_home_path(candidate) == _norm_home_path(profile_home))
 
 
-def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
+def _iter_real_home_candidates(env: Union[dict[str, str], None] = None) -> list[str]:
     """Return likely OS-user home candidates in trust order."""
     env = env or {}
     candidates: list[str] = []
@@ -1229,7 +1230,7 @@ def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
     return candidates
 
 
-def get_real_home(env: dict[str, str] | None = None) -> str:
+def get_real_home(env: Union[dict[str, str], None] = None) -> str:
     """Return the OS user's real home directory, avoiding Hermes profile HOME.
 
     ``HERMES_HOME`` scopes Hermes state. ``HOME`` is reserved for the OS/user
@@ -1249,7 +1250,7 @@ def get_real_home(env: dict[str, str] | None = None) -> str:
     return "/tmp"
 
 
-def get_subprocess_home(env: dict[str, str] | None = None) -> str | None:
+def get_subprocess_home(env: Union[dict[str, str], None] = None) -> Union[str, None]:
     """Return a subprocess ``HOME`` override, if one should be applied.
 
     Policy is controlled by ``terminal.home_mode`` (bridged to
@@ -1300,7 +1301,7 @@ VALID_REASONING_EFFORTS = (
 )
 
 
-def parse_reasoning_effort(effort) -> dict | None:
+def parse_reasoning_effort(effort) -> Union[dict, None]:
     """Parse a reasoning effort level into a config dict.
 
     Valid levels: "none", "minimal", "low", "medium", "high", "xhigh", "max",
@@ -1417,7 +1418,7 @@ def _canonical_model_variants(model: str) -> list[str]:
     return variants
 
 
-def resolve_per_model_reasoning_effort(model: str, overrides: dict | None) -> dict | None:
+def resolve_per_model_reasoning_effort(model: str, overrides: Union[dict, None]) -> Union[dict, None]:
     """Lookup a per-model reasoning_effort override with spelling-tolerance.
 
     Args:
@@ -1452,7 +1453,7 @@ def resolve_per_model_reasoning_effort(model: str, overrides: dict | None) -> di
     return None
 
 
-def resolve_reasoning_config(cfg: dict | None, model: str = "") -> dict | None:
+def resolve_reasoning_config(cfg: Union[dict, None], model: str = "") -> Union[dict, None]:
     """Resolve the effective reasoning config for *model* from a config dict.
 
     Single chokepoint for reasoning-effort resolution, shared by every
@@ -1523,7 +1524,7 @@ def is_termux() -> bool:
     return bool(os.getenv("TERMUX_VERSION") or "com.termux/files/usr" in prefix)
 
 
-_wsl_detected: bool | None = None
+_wsl_detected: Union[bool, None] = None
 
 
 def is_wsl() -> bool:
@@ -1544,7 +1545,7 @@ def is_wsl() -> bool:
     return _wsl_detected
 
 
-def windows_path_to_wsl(path: str) -> str | None:
+def windows_path_to_wsl(path: str) -> Union[str, None]:
     """Convert a Windows drive path (``C:\\...``) to its ``/mnt/<drive>/...`` form."""
     import re
 
@@ -1556,7 +1557,7 @@ def windows_path_to_wsl(path: str) -> str | None:
     return f"/mnt/{drive}/{tail}"
 
 
-def wsl_unc_path_to_posix(path: str) -> str | None:
+def wsl_unc_path_to_posix(path: str) -> Union[str, None]:
     """Convert a Windows WSL UNC path (``\\\\wsl.localhost\\<distro>\\...`` or the
     legacy ``\\\\wsl$\\...``) to a POSIX path inside the distro."""
     import re
@@ -1586,7 +1587,7 @@ def translate_cwd_for_wsl_backend(cwd: str) -> str:
     return cwd
 
 
-_container_detected: bool | None = None
+_container_detected: Union[bool, None] = None
 
 
 def is_container() -> bool:
@@ -1727,7 +1728,7 @@ AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 # ─── Venv layout ─────────────────────────────────────────────────────────────
 
-def venv_bin_dir(venv_dir, *, windows: bool | None = None) -> Path:
+def venv_bin_dir(venv_dir, *, windows: Union[bool, None] = None) -> Path:
     """Directory holding a venv's executables (``Scripts`` / ``bin``).
 
     Canonical helper for venv layout. This was open-coded in seven places
@@ -1753,7 +1754,7 @@ def venv_bin_dir(venv_dir, *, windows: bool | None = None) -> Path:
     return Path(venv_dir) / ("Scripts" if windows else "bin")
 
 
-def project_venv_dir(project_root) -> Path | None:
+def project_venv_dir(project_root) -> Union[Path, None]:
     """The project's venv directory, ``venv`` or ``.venv``, when one exists.
 
     ``uv venv`` defaults to ``.venv`` while our installers create ``venv``, so
@@ -1769,7 +1770,7 @@ def project_venv_dir(project_root) -> Path | None:
     return None
 
 
-def venv_python_path(venv_dir, *, windows: bool | None = None) -> Path:
+def venv_python_path(venv_dir, *, windows: Union[bool, None] = None) -> Path:
     """Path to the Python interpreter inside *venv_dir* (may not exist)."""
     if windows is None:
         windows = sys.platform == "win32"
@@ -1804,7 +1805,7 @@ FIRST_PARTY_MODULE_ROOTS = frozenset(
 )
 
 
-def is_first_party_module(name: str | None) -> bool:
+def is_first_party_module(name: Union[str, None]) -> bool:
     """True when *name* is a module that ships with Hermes.
 
     Matches on the first dotted segment against an exact set — a substring or

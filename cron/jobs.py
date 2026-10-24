@@ -254,6 +254,8 @@ def _job_running_in_this_process(job_id: str) -> bool:
     try:
         from cron.scheduler import get_running_job_ids
         return job_id in get_running_job_ids()
+    except ImportError:
+        return False
     except Exception:
         logger.warning(
             "Cron running-set liveness check failed for job %r; keeping the "
@@ -3543,9 +3545,31 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
         # job this tick" so healthy siblings still run and their recovered
         # state still reaches save_jobs() below.
         try:
+            jid = job.get("id") or job.get("job_id") or "?"
+            jname = job.get("name") or jid
+            sched = job.get("schedule") or {}
+            jkind = sched.get("kind") if isinstance(sched, dict) else None
+            jnext = job.get("next_run_at")
+            jlast = job.get("last_run_at")
+            jstatus = job.get("last_status")
+            jdelivery = job.get("last_delivery_error")
+            skip_reason = None
             if is_terminal_job(job) and not _is_recoverable_error_job(job):
-                continue
-            if not job.get("enabled", True):
+                skip_reason = "terminal_job"
+            elif not job.get("enabled", True):
+                skip_reason = "disabled"
+            if skip_reason:
+                logger.debug(
+                    "Job '%s' (%s): skip reason=%s kind=%s next=%s last=%s status=%s delivery_error=%s",
+                    jname,
+                    jid,
+                    skip_reason,
+                    jkind,
+                    jnext,
+                    jlast,
+                    jstatus,
+                    jdelivery,
+                )
                 continue
 
             # Contradiction self-heal: enabled=true with pause markers means the
